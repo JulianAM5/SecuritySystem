@@ -1,29 +1,64 @@
-MCU = atmega328p
-F_CPU = 16000000UL
-SRC = main.c
-TARGET = main
-PROGRAMMER = arduino
-PORT = /dev/ttyUSB0
+# ────────────────────── CONFIGURATION ───────────────────────
+MCU          = atmega328p
+F_CPU        = 16000000UL
 
-CC = avr-gcc
-OBJCOPY = avr-objcopy
-AVRDUDE = avrdude
+CC           = avr-gcc
+OBJCOPY      = avr-objcopy
+AVRDUDE      = avrdude
 
-CFLAGS = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os -o $(TARGET).elf $(SRC)
-OBJ_FLAGS = -O ihex -R .eeprom $(TARGET).elf $(TARGET).hex
-AVRDUDE_FLAGS = -c $(PROGRAMMER) -p $(MCU) \
-				-P $(PORT) -b 57600 \
-				-D -U flash:w:$(TARGET).hex:i
+PROGRAMMER   = arduino
+PORT         = /dev/ttyUSB0
+BAUD         = 57600
 
-compile:
-	$(CC) $(CFLAGS)
-	$(OBJCOPY) $(OBJ_FLAGS)
+SRCDIR       = src
+INCDIR       = include
+OBJDIR       = obj
+BINDIR       = bin
 
-flash:
-	$(AVRDUDE) $(AVRDUDE_FLAGS)
+CFLAGS += -mmcu=$(MCU) \
+           -DF_CPU=$(F_CPU) \
+           -Os -Wall -Wextra -std=c11 \
+           -I$(INCDIR) \
+           -MMD -MP \
+           -flto
 
+LDFLAGS += -mmcu=$(MCU) -flto
+
+# ────────────────────── END CONFIGURATION ───────────────────
+SRCS  := $(wildcard $(SRCDIR)/*.c)
+OBJS   = $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SRCS))
+DEPS   = $(OBJS:.o=.d)
+
+TARGET_ELF := $(BINDIR)/main.elf
+TARGET_HEX := $(BINDIR)/main.hex
+
+.PHONY: all compile flash clean depend
+
+all: compile
+
+compile: $(TARGET_HEX)
+
+$(OBJDIR):
+	mkdir -p $@
+
+$(BINDIR):
+	mkdir -p $@
+
+$(OBJDIR)/%.o : $(SRCDIR)/%.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TARGET_ELF): $(OBJS) | $(BINDIR)
+	$(CC) $(LDFLAGS) -o $@ $^
+
+$(TARGET_HEX): $(TARGET_ELF)
+	$(OBJCOPY) -O ihex -R .eeprom $< $@
+
+flash: $(TARGET_HEX)
+	$(AVRDUDE) -c $(PROGRAMMER) \
+	           -p $(MCU)  -P $(PORT) -b $(BAUD) \
+	           -D -U flash:w:$^:i
 
 clean:
-	rm -rf $(TARGET).elf $(TARGET).hex
+	rm -rf $(OBJDIR) $(BINDIR)
 
-.PHONY: compile flash clean
+-include $(DEPS)

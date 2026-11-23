@@ -1,2 +1,5 @@
+.clangd
 main.elf
 main.hex
+obj/
+bin/
