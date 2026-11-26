@@ -23,6 +23,7 @@ void    config_save_pass(void);
 void    config_save_arm_time(void);
 void    config_save_disarm_time(void);
 void    config_save_entry(uint8_t id);
+void    config_ee_put(uint16_t addr, uint8_t value);  /* escritura segura en EEPROM */
 uint8_t config_active_mask(void);       /* bit i = 1 si la entrada i esta activa */
 
 #endif

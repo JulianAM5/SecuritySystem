@@ -27,15 +27,9 @@ static void out_off(void)
     PORTB  &= (uint8_t)~(1 << BUZZER_PIN);
 }
 
-static void led(uint8_t on)
-{
-    if (on) PORTB |=  (1 << LED_PIN);
-    else    PORTB &= (uint8_t)~(1 << LED_PIN);
-}
-
 void buzzer_init(void)
 {
-    DDRB  |= (1 << BUZZER_PIN) | (1 << LED_PIN);
+    DDRB  |= (1 << BUZZER_PIN);              /* buzzer y LED comparten esta terminal */
     TCCR2A = (1 << WGM21) | (1 << WGM20);   /* Fast PWM, OC2A desconectado */
     TCCR2B = (1 << CS22);                   /* prescaler 64 */
     buzzer_off();
@@ -45,7 +39,6 @@ void buzzer_off(void)
 {
     mode = BUZ_OFF;
     out_off();
-    led(0);
 }
 
 void buzzer_beep(uint16_t ms)
@@ -60,7 +53,6 @@ void buzzer_beep(uint16_t ms)
 void buzzer_continuous_medium(void)
 {
     mode = BUZ_CONT;
-    led(0);
     out_on(DUTY_MEDIUM);
 }
 
@@ -70,7 +62,6 @@ void buzzer_intermittent_high(void)
     phase_on = 1;
     t0 = millis();
     out_on(DUTY_HIGH);
-    led(1);
 }
 
 void buzzer_task(void)
@@ -84,7 +75,6 @@ void buzzer_task(void)
             t0 = millis();
             phase_on = !phase_on;
             if (phase_on) out_on(DUTY_HIGH); else out_off();
-            led(phase_on);
         }
         break;
     default:

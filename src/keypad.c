@@ -1,13 +1,16 @@
 #include "keypad.h"
-#include "pcf8574.h"
 #include "timer.h"
 #include "board.h"
 #include <avr/interrupt.h>
 #include <util/atomic.h>
 #include <util/delay.h>
 
-#define KP_IDLE        0xF0   /* filas en 0 (salida), columnas en 1 (entrada) */
-#define HELD_POLL_MS   20UL
+/* Filas: F1=PB2 (D10), F2=PB4 (D12), F3=PB5 (D13), F4=PD2 (D2)
+ * Columnas: PC0..PC3 (A0..A3)                                    */
+#define KP_ROWS_B_MASK   ((1 << PB2) | (1 << PB4) | (1 << PB5))
+#define KP_ROWS_D_MASK   (1 << PD2)
+#define KP_COLS_MASK     0x0F
+#define HELD_POLL_MS     20UL
 
 static const char keymap[4][4] = {
     {'1', '2', '3', 'A'},
@@ -20,10 +23,25 @@ static volatile uint8_t kp_flag = 0;
 static uint8_t  held = 0;
 static uint32_t last_poll = 0;
 
-/* INT del PCF8574 del teclado (activo en bajo) */
-ISR(INT0_vect)
+/* Cambio en alguna columna (A0..A3) */
+ISR(PCINT1_vect)
 {
     kp_flag = 1;
+}
+
+/* Las filas se mantienen siempre con PORT = 0. Solo se cambia DDR:
+ *   DDR = 1 -> la fila se maneja en 0 ;  DDR = 0 -> alta impedancia.
+ * Asi nunca se maneja una fila en 1, y dos teclas presionadas a la vez
+ * no pueden provocar un corto entre salidas.                         */
+static void rows_drive(uint8_t mask4)
+{
+    uint8_t b = 0;
+    if (mask4 & 0x01) b |= (1 << PB2);
+    if (mask4 & 0x02) b |= (1 << PB4);
+    if (mask4 & 0x04) b |= (1 << PB5);
+    DDRB = (uint8_t)((DDRB & (uint8_t)~KP_ROWS_B_MASK) | b);
+    if (mask4 & 0x08) DDRD |=  KP_ROWS_D_MASK;
+    else              DDRD &= (uint8_t)~KP_ROWS_D_MASK;
 }
 
 /* Barrido de filas. Retorna la tecla o 0 */
@@ -32,27 +50,32 @@ static char keypad_scan(void)
     char key = 0;
 
     for (uint8_t r = 0; r < 4 && !key; r++) {
-        /* fila r en 0, demas filas en 1, columnas en 1 (entradas) */
-        pcf8574_write(PCF_ADDR_KEYPAD, (uint8_t)(0xF0 | (~(1 << r) & 0x0F)));
-        uint8_t cols = (uint8_t)((pcf8574_read(PCF_ADDR_KEYPAD) >> 4) & 0x0F);
+        rows_drive((uint8_t)(1 << r));            /* solo la fila r en 0 */
+        _delay_us(10);                            /* estabilizar */
+        uint8_t cols = (uint8_t)(PINC & KP_COLS_MASK);
         for (uint8_t c = 0; c < 4; c++) {
             if (!(cols & (1 << c))) { key = keymap[r][c]; break; }
         }
     }
-    pcf8574_write(PCF_ADDR_KEYPAD, KP_IDLE);   /* regresar a reposo */
+    rows_drive(0x0F);                             /* regresar a reposo */
     return key;
 }
 
 void keypad_init(void)
 {
-    DDRD  &= (uint8_t)~(1 << PD2);
-    PORTD |= (1 << PD2);                       /* pull-up (INT es open-drain) */
-    EICRA |=  (1 << ISC01);                    /* flanco de bajada */
-    EICRA &= (uint8_t)~(1 << ISC00);
-    pcf8574_write(PCF_ADDR_KEYPAD, KP_IDLE);
-    (void)pcf8574_read(PCF_ADDR_KEYPAD);       /* liberar INT */
-    EIFR  = (1 << INTF0);
-    EIMSK |= (1 << INT0);
+    /* Filas: PORT = 0 y, en reposo, todas manejadas en 0 */
+    PORTB &= (uint8_t)~KP_ROWS_B_MASK;
+    PORTD &= (uint8_t)~KP_ROWS_D_MASK;
+    rows_drive(0x0F);
+
+    /* Columnas: entradas con pull-up */
+    DDRC  &= (uint8_t)~KP_COLS_MASK;
+    PORTC |= KP_COLS_MASK;
+
+    /* Interrupcion por cambio de pin del puerto C, solo A0..A3 */
+    PCMSK1 = KP_COLS_MASK;
+    PCIFR  = (1 << PCIF1);
+    PCICR |= (1 << PCIE1);
 }
 
 char keypad_get(void)
@@ -67,19 +90,19 @@ char keypad_get(void)
         uint8_t f;
         ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { f = kp_flag; kp_flag = 0; }
         if (!f) return 0;
-        _delay_ms(5);                          /* antirrebote */
+        _delay_ms(5);                             /* antirrebote */
     }
 
     k = keypad_scan();
-    ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { kp_flag = 0; }  /* ignorar INT provocada por el barrido */
+    ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { kp_flag = 0; }  /* ignorar PCINT provocada por el barrido */
 
     if (k) {
         if (!held) {
             held = 1;
             last_poll = millis();
-            return k;                          /* tecla nueva */
+            return k;                             /* tecla nueva */
         }
-        return 0;                              /* sigue presionada */
+        return 0;                                 /* sigue presionada */
     }
     held = 0;
     return 0;

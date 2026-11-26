@@ -9,7 +9,8 @@
  * 1..4     : clave (4 digitos ASCII)
  * 5        : tiempo de armado
  * 6        : tiempo de desarmado
- * 8 + 13*i : entrada i -> [enabled][nombre x12]            */
+ * 8 + 13*i : entrada i -> [enabled][nombre x12]  (hasta la 111)
+ * 128..    : bitacora de alarmas (ver log.c)                    */
 #define CFG_MAGIC        0xA5
 #define ADDR_MAGIC       0
 #define ADDR_PASS        1
@@ -23,7 +24,7 @@ config_t cfg;
 /* Escritura segura: la secuencia EEMPE->EEPE debe ocurrir en 4 ciclos,
  * por eso se hace sin interrupciones (esperando antes a que termine
  * cualquier escritura previa para no bloquear el tick de 1 ms). */
-static void ee_put(uint16_t addr, uint8_t value)
+void config_ee_put(uint16_t addr, uint8_t value)
 {
     while (EECR & (1 << EEPE));
     ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
@@ -46,19 +47,19 @@ static void factory_defaults(void)
 
 void config_save_pass(void)
 {
-    for (uint8_t i = 0; i < 4; i++) ee_put(ADDR_PASS + i, (uint8_t)cfg.pass[i]);
+    for (uint8_t i = 0; i < 4; i++) config_ee_put(ADDR_PASS + i, (uint8_t)cfg.pass[i]);
 }
 
-void config_save_arm_time(void)    { ee_put(ADDR_ARM, cfg.arm_time); }
-void config_save_disarm_time(void) { ee_put(ADDR_DISARM, cfg.disarm_time); }
+void config_save_arm_time(void)    { config_ee_put(ADDR_ARM, cfg.arm_time); }
+void config_save_disarm_time(void) { config_ee_put(ADDR_DISARM, cfg.disarm_time); }
 
 void config_save_entry(uint8_t id)
 {
     if (id >= MAX_ENTRIES) return;
     uint16_t base = ADDR_ENTRIES + (uint16_t)id * ENTRY_SIZE;
-    ee_put(base, cfg.entries[id].enabled ? 1 : 0);
+    config_ee_put(base, cfg.entries[id].enabled ? 1 : 0);
     for (uint8_t i = 0; i < ENTRY_NAME_MAX; i++) {
-        ee_put(base + 1 + i, (uint8_t)cfg.entries[id].name[i]);  /* relleno con 0 */
+        config_ee_put(base + 1 + i, (uint8_t)cfg.entries[id].name[i]);  /* relleno con 0 */
     }
 }
 
@@ -71,7 +72,7 @@ void config_load(void)
         config_save_arm_time();
         config_save_disarm_time();
         for (uint8_t i = 0; i < MAX_ENTRIES; i++) config_save_entry(i);
-        ee_put(ADDR_MAGIC, CFG_MAGIC);
+        config_ee_put(ADDR_MAGIC, CFG_MAGIC);
         return;
     }
 

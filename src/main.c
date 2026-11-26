@@ -2,7 +2,8 @@
  * Sistema de seguridad para casa (maqueta) - ATmega328P (Arduino NANO)
  *
  * Perifericos: Timer0 (base 1 ms), Timer2 (PWM buzzer), USART, EEPROM,
- *              I2C (LCD, 2x PCF8574), INT0/INT1 (interrupciones de los PCF8574).
+ *              I2C (PCF8574 de entradas), INT1 (PCF8574), PCINT1 (teclado),
+ *              LCD 16x2 por I2C (PCF8574 0x27).
  */
 #include "board.h"
 #include <avr/interrupt.h>
@@ -19,6 +20,8 @@
 #include "inputs.h"
 #include "config.h"
 #include "cmd.h"
+#include "clock.h"
+#include "log.h"
 
 typedef enum {
     ST_DISARMED,    /* NO ARMADO                                   */
@@ -189,6 +192,7 @@ static void update_state(void)
         if (elapsed(state_t0) >= (uint32_t)cfg.disarm_time * 1000UL) {
             state = ST_ALARM;
             buzzer_intermittent_high();
+            log_alarm_add(trigger_id, cfg.entries[trigger_id].name);
         }
         break;
     default:
@@ -272,8 +276,11 @@ int main(void)
     timer_init();
     buzzer_init();
     UART_init(UART_UBRR_9600, 3, 0, 0);   /* 9600, 8 bits, sin paridad, 1 stop */
+    PORTC |= (1 << PC4) | (1 << PC5);     /* pull-ups internos de SDA/SCL (respaldo) */
     i2c_init();
     config_load();
+    log_init();
+    clock_init();
     lcd_init();
     keypad_init();
     inputs_init();
@@ -285,6 +292,7 @@ int main(void)
     _delay_ms(1000);
 
     for (;;) {
+        clock_task();
         cmd_task();
 
         char k = keypad_get();

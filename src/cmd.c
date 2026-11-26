@@ -2,6 +2,8 @@
 #include "UART.h"
 #include "config.h"
 #include "inputs.h"
+#include "log.h"
+#include "clock.h"
 #include "board.h"
 #include <stdio.h>
 #include <string.h>
@@ -168,6 +170,102 @@ static void cmd_mod(char *args)
     resp_ok();
 }
 
+
+/* Formatea fecha/hora: "YYYY-MM-DD HH:MM:SS" o "T+H:MM:SS" (desde arranque) */
+static void format_time(time_t ts, uint8_t synced, char *buf, uint8_t size)
+{
+    if (synced) {
+        struct tm tm;
+        gmtime_r(&ts, &tm);
+        snprintf(buf, size, "%04u-%02u-%02u %02u:%02u:%02u",
+                 (unsigned)(tm.tm_year + 1900), (unsigned)(tm.tm_mon + 1),
+                 (unsigned)tm.tm_mday, (unsigned)tm.tm_hour,
+                 (unsigned)tm.tm_min, (unsigned)tm.tm_sec);
+    } else {
+        uint32_t s = (uint32_t)ts;
+        snprintf(buf, size, "T+%u:%02u:%02u", (unsigned)(s / 3600UL),
+                 (unsigned)((s % 3600UL) / 60UL), (unsigned)(s % 60UL));
+    }
+}
+
+/* LOG alarm: bitacora de alarmas (mas reciente primero) */
+static void cmd_log(char *args)
+{
+    char *t = next_token(&args);
+    char buf[72], when[24];
+    log_entry_t e;
+
+    if (!t || next_token(&args)) { resp_err(); return; }
+    for (char *c = t; *c; c++) *c = (char)toupper((unsigned char)*c);
+    if (strcmp(t, "ALARM") != 0) { resp_err(); return; }
+
+    UART_string("| # | ID | NOMBRE | FECHA Y HORA |\r\n");
+    for (uint8_t n = 0; n < log_count(); n++) {
+        if (!log_get(n, &e)) break;
+        format_time(e.ts, e.synced, when, sizeof(when));
+        snprintf(buf, sizeof(buf), "| %u | %u | %s | %s |\r\n",
+                 (unsigned)(n + 1), (unsigned)e.id, e.name, when);
+        UART_string(buf);
+    }
+    resp_ok();
+}
+
+/* Lee exactamente n digitos ASCII */
+static uint8_t read_digits(const char *s, uint8_t n, uint16_t *out)
+{
+    uint16_t v = 0;
+    for (uint8_t i = 0; i < n; i++) {
+        if (s[i] < '0' || s[i] > '9') return 0;
+        v = (uint16_t)(v * 10 + (s[i] - '0'));
+    }
+    *out = v;
+    return 1;
+}
+
+/* TIME                          -> consulta
+ * TIME YYYY-MM-DD HH:MM:SS      -> ajusta fecha y hora */
+static void cmd_clock(char *args)
+{
+    char *d = next_token(&args);
+    char *h = next_token(&args);
+    char buf[32];
+
+    if (!d) {
+        format_time(clock_now(), clock_synced(), buf, sizeof(buf));
+        UART_string(buf);
+        UART_string("\r\n");
+        return;
+    }
+
+    uint16_t y, mo, dd, hh, mi, ss;
+    if (!h || next_token(&args) ||
+        strlen(d) != 10 || d[4] != '-' || d[7] != '-' ||
+        strlen(h) != 8  || h[2] != ':' || h[5] != ':' ||
+        !read_digits(d, 4, &y) || !read_digits(d + 5, 2, &mo) || !read_digits(d + 8, 2, &dd) ||
+        !read_digits(h, 2, &hh) || !read_digits(h + 3, 2, &mi) || !read_digits(h + 6, 2, &ss) ||
+        y < 2000 || y > 2099 || mo < 1 || mo > 12 || dd < 1 ||
+        hh > 23 || mi > 59 || ss > 59) {
+        resp_err();
+        return;
+    }
+
+    struct tm tm, chk;
+    memset(&tm, 0, sizeof(tm));
+    tm.tm_year = (int)y - 1900;
+    tm.tm_mon  = (int)mo - 1;
+    tm.tm_mday = (int)dd;
+    tm.tm_hour = (int)hh;
+    tm.tm_min  = (int)mi;
+    tm.tm_sec  = (int)ss;
+    time_t ts = mktime(&tm);
+
+    gmtime_r(&ts, &chk);                  /* detectar fechas inexistentes (30 feb, etc.) */
+    if (chk.tm_mday != (int)dd || chk.tm_mon != (int)mo - 1) { resp_err(); return; }
+
+    clock_set(ts);
+    resp_ok();
+}
+
 static void process_line(char *s)
 {
     char *args = s;
@@ -183,6 +281,8 @@ static void process_line(char *s)
     else if (!strcmp(cmd, "NEW"))       cmd_new(args);
     else if (!strcmp(cmd, "DEL"))       cmd_del(args);
     else if (!strcmp(cmd, "MOD"))       cmd_mod(args);
+    else if (!strcmp(cmd, "LOG"))       cmd_log(args);
+    else if (!strcmp(cmd, "TIME"))      cmd_clock(args);
     else                                resp_err();
 }
 

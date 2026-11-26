@@ -1,9 +1,6 @@
 #ifndef BOARD_H
 #define BOARD_H
 
-/* Frecuencia del Arduino NANO. Idealmente defínela en
- * Project > Properties > Toolchain > Symbols: F_CPU=16000000UL
- * (i2c.c la necesita y no incluye este archivo). */
 #ifndef F_CPU
 #define F_CPU 16000000UL
 #endif
@@ -11,18 +8,30 @@
 #include <avr/io.h>
 #include <stdint.h>
 
-/* ---------- Direcciones I2C (7 bits) ---------- */
-#define PCF_ADDR_INPUTS   0x20   /* PCF8574 de entradas (puertas/ventanas) */
-#define PCF_ADDR_KEYPAD   0x21   /* PCF8574 del teclado 4x4                */
-#define LCD_I2C_ADDR      0x27   /* LCD 16x2 con modulo I2C                */
+/* ============================ PINOUT ============================
+ *  Arduino NANO | ATmega328P | Funcion
+ *  -------------+------------+-----------------------------------
+ *  D0  (RX)     | PD0        | UART RX
+ *  D1  (TX)     | PD1        | UART TX
+ *  D2           | PD2        | Teclado: fila F4
+ *  D3           | PD3 (INT1) | INT del PCF8574 de entradas (0x20)
+ *  D4..D9       | PD4..PD7, PB0, PB1 | LIBRES (el LCD va por I2C)
+ *  D10          | PB2        | Teclado: fila F1
+ *  D11          | PB3 (OC2A) | Buzzer + LED (comparten terminal, PWM Timer2)
+ *  D12          | PB4        | Teclado: fila F2
+ *  D13          | PB5        | Teclado: fila F3
+ *  A0..A3       | PC0..PC3   | Teclado: columnas C1..C4 (PCINT8..11)
+ *  A4 / A5      | PC4 / PC5  | I2C (SDA / SCL): PCF8574 de entradas (0x20) + modulo LCD (0x27)
+ * ================================================================ */
 
-/* ---------- Pines ---------- */
-/* INT0 (PD2/D2) <- INT del PCF8574 del teclado
- * INT1 (PD3/D3) <- INT del PCF8574 de entradas
- * OC2A (PB3/D11) -> Buzzer (PWM Timer2)
- * PB5 (D13)      -> LED de alarma                                  */
+/* ---------- Direccion I2C (7 bits) ---------- */
+#define PCF_ADDR_INPUTS   0x20   /* PCF8574 de entradas (puertas/ventanas) */
+
+/* ---------- LCD 16x2 con modulo I2C (PCF8574) ---------- */
+#define LCD_I2C_ADDR      0x27   /* A0=A1=A2=1 en PCF8574; 0x3F si es PCF8574A */
+
+/* ---------- Buzzer y LED (misma terminal) ---------- */
 #define BUZZER_PIN        PB3
-#define LED_PIN           PB5
 
 /* ---------- UART ---------- */
 #define UART_UBRR_9600    103    /* 16 MHz, U2X=0 -> 9600 baudios */

@@ -4,8 +4,9 @@
 #include <util/delay.h>
 #include <string.h>
 
-/* Mapeo tipico del modulo I2C (backpack) para LCD HD44780:
- * P0=RS P1=RW P2=EN P3=Backlight P4..P7=D4..D7 */
+/* LCD HD44780 con modulo I2C (PCF8574 en LCD_I2C_ADDR).
+ * Mapeo tipico del modulo (backpack):
+ *   P0=RS  P1=RW  P2=EN  P3=Backlight  P4..P7=D4..D7            */
 #define LCD_RS  0x01
 #define LCD_EN  0x04
 #define LCD_BL  0x08
